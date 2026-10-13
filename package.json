@@ -1,0 +1,24 @@
+{
+  "name": "git-dojo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "瀏覽器內的 Git 團隊協作練習場",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "docs:levels": "vite-node scripts/gen-level-script.ts"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "6.4.4",
+    "vite-node": "3.2.4",
+    "vitest": "3.2.7"
+  }
+}
