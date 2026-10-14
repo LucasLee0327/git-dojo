@@ -2,8 +2,9 @@ import type { Game } from '../core/game';
 import { ancestors } from '../git/repo';
 import { withDark } from '../site/files';
 import { baseWorld, bossPolicy, editSite, leftovers, originHas } from './common';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
 
+const EV_READY: EvTab[] = ['files', 'checks', 'preview'];
 const featName = (g: Game): string | undefined => g.prs.find((p) => p.author === 'me')?.head ?? Object.keys(g.me.branches).find((b) => /^feat\//.test(b));
 const myPR = (g: Game) => g.prs.find((p) => p.author === 'me');
 const merged = (g: Game) => myPR(g)?.state === 'merged';
@@ -103,7 +104,13 @@ export const level1: LevelDef = {
       },
     },
     { id: 'pr', label: '🧑 到 GitHub 分頁開一個 Draft PR（目標分支 staging）', human: true, done: (g) => !!myPR(g) },
-    { id: 'ready', label: '🧑 確認 CI 全綠、檔案清單沒有多餘的東西後，把 PR 轉成 Ready for review', human: true, done: (g) => !!myPR(g) && (!myPR(g)!.draft || merged(g)) },
+    {
+      id: 'ready',
+      label: '🧑 先打開 PR 的 Checks、Files changed、預覽站各看一遍（P4），再轉成 Ready for review',
+      human: true,
+      evidence: { on: ['ready'], pr: myPR, tabs: EV_READY, rule: 'P4' },
+      done: (g) => !!myPR(g) && (!myPR(g)!.draft || merged(g)) && g.checkedPR(myPR(g)!.number, EV_READY),
+    },
     {
       id: 'merged',
       label: '部長審查並合併後，測試站預覽出現深色模式按鈕',
@@ -114,6 +121,12 @@ export const level1: LevelDef = {
       label: '收尾：回到 staging、pull 最新、刪掉用完的 feat 分支（先試 -d，PR 已 Merged 再用 -D）',
       done: (g) => merged(g) && g.branch === 'staging' && g.me.branches.staging === g.origin.branches.staging && !g.me.branches[myPR(g)!.head],
     },
+  ],
+  stages: [
+    { key: 'A', title: '準備工作', why: '新功能要從團隊最新的版本開始，之後才不會和別人的修改打架。', objectives: ['branch'] },
+    { key: 'B', title: '在自己的分支改檔並提交', why: '修改只放在自己的分支上，而且只存這次真的改的檔案，審查的人才看得懂。', objectives: ['edit', 'commit'] },
+    { key: 'C', title: '上傳並送審', why: '把分支放上 GitHub 讓團隊看得到，先開 Draft 讓大家早點知道你在做什麼，確認沒問題才請人審。', objectives: ['push', 'pr', 'ready'] },
+    { key: 'D', title: '合併後收尾', why: '功能進了 staging 之後，你的舊分支就沒用了，清乾淨才不會下次接著用它出錯。', objectives: ['merged', 'cleanup'] },
   ],
   hints: {
     branch: [
@@ -134,9 +147,9 @@ export const level1: LevelDef = {
     ],
     pr: ['到「GitHub」分頁，推上去的分支會出現「Compare & pull request」的黃色提示。', '按它，確認目標是 staging，勾選 Draft 後建立。', '標題寫「新增深色模式按鈕」，按 Create draft pull request。'],
     ready: [
-      '轉 Ready 之前（P4）：CI 要綠燈、PR 預覽站自己點過一遍、Files changed 沒有無關檔案。',
-      '到 PR 頁面看 Checks 全綠，再點 Files changed 確認只有 4 個檔案，然後按 Ready for review。',
-      '在 PR 頁面按「Ready for review」。',
+      '轉 Ready 之前（P4）：CI 要綠燈、PR 預覽站自己點過一遍、Files changed 沒有無關檔案——要真的打開這三個分頁，任務才會打勾。',
+      '到 PR 頁面依序點 Checks（全綠）、Files changed（只有 4 個檔案）、預覽站（按鈕有用），然後按 Ready for review。',
+      '在 PR 頁面點 Checks、Files changed、預覽站各一次，再按「Ready for review」。（沒看就按也可以，但這一格不會打勾，之後要回來補看。）',
     ],
     merged: ['轉 Ready 後，部長機器人會自己審查。等一下就好。', '看右上角的通知，部長會留言。', '如果部長退回，看他寫的原因。'],
     cleanup: [

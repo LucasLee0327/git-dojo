@@ -77,3 +77,30 @@ describe('所有關卡的共通性質', () => {
     expect(g2.branch).not.toBe('feat/persist');
   });
 });
+
+describe('任務卡的階段分組', () => {
+  for (const def of LEVELS.filter((l) => l.stages)) {
+    it(`第 ${def.id} 關：階段引用的目標都存在，每個目標恰好屬於一個階段，順序一致`, () => {
+      const ids = def.objectives.map((o) => o.id);
+      const staged = def.stages!.flatMap((st) => st.objectives);
+      for (const id of staged) expect(ids, `階段引用了不存在的目標 ${id}`).toContain(id);
+      expect([...staged].sort()).toEqual([...ids].sort());
+      expect(staged).toEqual(ids);
+      for (const st of def.stages!) {
+        expect(st.title.length).toBeGreaterThan(0);
+        expect(st.why.length).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  it('第 1 關是 A–D 四個階段', () => {
+    const def = LEVELS.find((l) => l.id === 1)!;
+    expect(def.stages!.map((s) => s.objectives)).toEqual([['branch'], ['edit', 'commit'], ['push', 'pr', 'ready'], ['merged', 'cleanup']]);
+  });
+});
+
+describe('提示文字', () => {
+  it('沒有任何提示提到不存在的「貼到終端機」按鈕', () => {
+    for (const def of LEVELS) for (const hs of Object.values(def.hints)) for (const h of hs) expect(h).not.toContain('貼到終端機');
+  });
+});

@@ -6,7 +6,9 @@ import { mergeInfo, mergePR, updateBranch } from '../github/github';
 import { withHighlight, withWordCount } from '../site/files';
 import { runTests } from '../site/runner';
 import { baseWorld, botPush, bossPolicy, newPR, siteTree, tipTree } from './common';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
+
+const EV_READY: EvTab[] = ['files', 'preview'];
 
 const FEAT = 'feat/highlight';
 const MERGED_LINE = "  p.textContent = highlight(ch.body) + '（' + wordCount(ch.body) + ' 字）';";
@@ -19,8 +21,8 @@ const bothKept = (t: Record<string, string> | null) =>
 const started = (g: Game) => !!(g.flags['said:l6-a'] || g.flags['said:l6-b']);
 const lastSaidGood = (g: Game) => g.flags.lastSaid === 'l6-a';
 
-const A_TEXT = '把最新的 staging（origin/staging）合進 feat/highlight，再 push。如果有衝突，先停下來告訴我兩邊各改了什麼，由我決定怎麼合，不要自己整個採用某一邊。';
-const B_TEXT = '幫我把 feat/highlight 更新到最新的 staging，解決衝突，然後推上去。';
+const A_TEXT = '把最新的 staging 合進 feat/highlight 再 push。有衝突就先停下來，告訴我兩邊各改了什麼，由我決定，不要整個採用某一邊。';
+const B_TEXT = '幫我把 feat/highlight 更新到最新的 staging，遇到衝突你就直接處理掉，不用每次都來問我，反正你比我熟，測試過了就推上去。';
 
 export const level6: LevelDef = {
   id: 6,
@@ -99,7 +101,13 @@ export const level6: LevelDef = {
       label: 'push 上 GitHub（push 被拒絕就先 pull，不要 force），讓 PR 沒有衝突',
       done: (g) => merged(g) || (!!tip(g) && g.origin.branches[FEAT] === tip(g) && !!myPR(g) && mergeInfo(g.w, myPR(g)!).mergeable),
     },
-    { id: 'ready', label: '🧑 看過 PR 預覽（有「（N 字）」嗎？）與 Files changed 後，轉成 Ready for review', human: true, done: (g) => !!myPR(g) && (!myPR(g)!.draft || merged(g)) },
+    {
+      id: 'ready',
+      label: '🧑 打開 PR 的預覽站（有「（N 字）」嗎？）和 Files changed 看過，再轉成 Ready for review',
+      human: true,
+      evidence: { on: ['ready'], pr: myPR, tabs: EV_READY, rule: 'P4' },
+      done: (g) => !!myPR(g) && (!myPR(g)!.draft || merged(g)) && g.checkedPR(myPR(g)!.number, EV_READY),
+    },
     {
       id: 'merged',
       label: '部長合併後，測試站同時有關鍵字標示與字數統計',
@@ -122,7 +130,7 @@ export const level6: LevelDef = {
       'git pull（用 merge 把遠端的 commit 合進來），再 git push。',
       'git pull\ngit push',
     ],
-    ready: ['轉 Ready 之前自己點開 PR 預覽看一遍。', '到 GitHub 分頁 → PR 預覽 → 看章節內文後面有沒有（N 字）。', '都在就按 Ready for review。'],
+    ready: ['轉 Ready 之前自己點開 PR 預覽看一遍——要真的打開預覽站和 Files changed 分頁，任務才會打勾（push 了新 commit 之後要重看）。', '到 GitHub 分頁 → PR → 預覽站，看章節內文後面有沒有（N 字）；再點 Files changed。', '都在就按 Ready for review。'],
     merged: ['等部長審查。', '看右上角通知。', '合併後切到「測試站」預覽確認兩個功能都在。'],
   },
   agent: {
@@ -214,7 +222,7 @@ export const level6: LevelDef = {
           label: 'AI 停在衝突上。你的決定是：',
           options: [
             { id: 'l6-both', text: '兩邊都保留：先標出關鍵字，後面再接字數。改好後跑 npm test，再 add、commit。', quality: 'good', script: 'resolve-both', note: '你做了決定，AI 負責動手。' },
-            { id: 'l6-either', text: '隨便選一邊就好，快點解掉。', quality: 'vague', script: 'resolve-either', note: '這等於叫 AI 自己挑——挑的那一邊，另一個人的功能就消失了。' },
+            { id: 'l6-either', text: '兩邊的寫法我都看不太懂，反正功能差不多，你挑一個比較新的版本留下來就好，另一邊丟掉沒關係，快點解掉。', quality: 'vague', script: 'resolve-either', note: '這等於叫 AI 自己挑——挑的那一邊，另一個人的功能就消失了。' },
           ],
         };
       }
@@ -222,8 +230,8 @@ export const level6: LevelDef = {
         return {
           label: '合併完成了。接下來：',
           options: [
-            { id: 'l6-push-good', text: '現在 push。如果被拒絕，不要 force、不要 reset——用 git pull 把 GitHub 上的新 commit 合進來，再 push。', quality: 'good', script: 'push-good', note: '被拒絕的正確處理：pull、不是蠻力。' },
-            { id: 'l6-push-vague', text: '幫我 push 上去，被擋住就想辦法讓它過。', quality: 'vague', script: 'push-vague', note: '「想辦法讓它過」＝允許 AI 用蠻力。force 被規則擋，但 reset --hard 只會跳權限視窗問你。' },
+            { id: 'l6-push-good', text: '現在 push。被拒絕的話不要 force、不要 reset，用 git pull 合進來再 push。', quality: 'good', script: 'push-good', note: '被拒絕的正確處理：pull、不是蠻力。' },
+            { id: 'l6-push-vague', text: '幫我 push 上去，被擋住就想辦法讓它過，反正最後推上去就好。', quality: 'vague', script: 'push-vague', note: '「想辦法讓它過」＝允許 AI 用蠻力。force 被規則擋，但 reset --hard 只會跳權限視窗問你。' },
           ],
         };
       }

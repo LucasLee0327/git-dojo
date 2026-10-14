@@ -1,15 +1,17 @@
 // 關卡畫面：任務卡＋AI 助手＋終端機＋（預覽／GitHub／編輯器）＋常駐 git 狀態面板。
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Game } from '../core/game';
+import type { Stage } from '../levels/types';
 import { DENY_RULES, ASK_RULES } from '../agent/perms';
 import { getStatus } from '../git/engine';
 import { LEVELS } from '../levels';
-import { RULES, RULE_GROUPS, ruleOf, splitCodes, type RuleDef } from '../levels/rules';
+import { GIT_FACTS, RULES, RULE_GROUPS, ruleOf, splitCodes, type RuleDef } from '../levels/rules';
 import { saveMeta, storageStatus, type Meta, type Speed } from '../store/save';
 import { Chat, resetChatMemo } from './chat';
 import { BranchChip, Modal, RuleCodes, useGame } from './common';
 import { Driver, SPEED_LABEL } from './driver';
 import { EditorTab } from './editor';
+import { FlowMap } from './flow-map';
 import { GithubTab } from './github';
 import { resetColors } from './graph/colors';
 import { GitPanel } from './git-panel';
@@ -37,7 +39,7 @@ export function LevelScreen(p: LevelProps) {
   metaRef.current = meta;
   const [tab, setTab] = useState<Tab>(def.startTab ?? 'preview');
   const [taskOpen, setTaskOpen] = useState(() => s.hist.length === 0);
-  const [modal, setModal] = useState<null | 'rules' | 'settings' | 'rewind' | 'success' | 'restart'>(null);
+  const [modal, setModal] = useState<null | 'rules' | 'flow' | 'settings' | 'rewind' | 'success' | 'restart'>(null);
   const [toasts, setToasts] = useState<{ id: number; text: string; kind: string }[]>([]);
   const lastFeed = useRef(0);
 
@@ -53,6 +55,15 @@ export function LevelScreen(p: LevelProps) {
     driver.start();
     return () => driver.stop();
   }, [driver]);
+
+  // 第 0 關第一次進入：自動開一次流程地圖視窗（記在 meta，之後不再自動開）
+  useEffect(() => {
+    const m = metaRef.current;
+    if (def.id !== 0 || m.seenFlowMap) return;
+    if (document.querySelector('.modal-back')) return;
+    p.setMeta({ ...m, seenFlowMap: true });
+    setModal('flow');
+  }, []);
 
   // 第一次動手之後把任務卡收起來，把空間還給工作區（可以隨時再展開）
   const hadHist = useRef(s.hist.length > 0);
@@ -115,6 +126,19 @@ export function LevelScreen(p: LevelProps) {
   });
   const cur = g.currentObjective();
   const doneCount = objs.filter((o) => o.isDone).length;
+  // 有分階段的關卡：依 stages 把目標分組；不在任何階段的目標（正常不會有）放在最後一組，不加標題
+  const groups = (() => {
+    if (!def.stages) return [{ stage: null as Stage | null, letter: '', items: objs }];
+    const used = new Set<string>();
+    const gs = def.stages.map((st, i) => {
+      st.objectives.forEach((id) => used.add(id));
+      return { stage: st as Stage | null, letter: String.fromCharCode(65 + i), items: objs.filter((o) => st.objectives.includes(o.id)) };
+    });
+    const rest = objs.filter((o) => !used.has(o.id));
+    if (rest.length) gs.push({ stage: null, letter: '', items: rest });
+    return gs.filter((x) => x.items.length > 0);
+  })();
+  const curGroup = groups.find((x) => cur && x.items.some((o) => o.id === cur.id));
   const st = getStatus(g.w, g.me);
   const hasConflict = st.conflicted.length > 0;
   const openPRs = g.prs.filter((x) => x.state === 'open').length;
@@ -155,6 +179,9 @@ export function LevelScreen(p: LevelProps) {
         <button class="btn small" disabled={g.checkpoints.length === 0} onClick={() => setModal('rewind')} title="回到之前某個動作之前">
           ⏪ 時光倒流 ({g.checkpoints.length})
         </button>
+        <button class="btn small" onClick={() => setModal('flow')} title="一張圖看懂改動從哪裡到哪裡">
+          🗺 流程地圖
+        </button>
         <button class="btn small" onClick={() => setModal('rules')}>
           📖 規則速查
         </button>
@@ -177,21 +204,38 @@ export function LevelScreen(p: LevelProps) {
           {!def.free && (
             <div class="tc-obj">
               <h3>這一關要做到</h3>
-              <ol class="objs">
-                {objs.map((o) => (
-                  <li key={o.id} class={`${o.isDone ? 'done' : ''} ${cur?.id === o.id ? 'cur' : ''}`}>
-                    <span class="check">{o.isDone ? '✓' : cur?.id === o.id ? '▶' : '○'}</span>
-                    <span>
-                      {o.human && !o.label.startsWith('🧑') && (
-                        <span class="human" title="只有人能做／該由人判斷的步驟">
-                          🧑{' '}
-                        </span>
-                      )}
-                      {o.label}
-                    </span>
-                  </li>
-                ))}
-              </ol>
+              {groups.map((gp, gi) => {
+                const stDone = gp.items.every((o) => o.isDone);
+                const stCur = gp === curGroup;
+                return (
+                  <div key={gp.stage?.key ?? `rest${gi}`} class={gp.stage ? `stage ${stDone ? 'done' : stCur ? 'cur' : 'todo'}` : undefined}>
+                    {gp.stage && (
+                      <div class="stage-head">
+                        <span class="stage-mark">{stDone ? '✓' : gp.letter}</span>
+                        <div>
+                          <b>{gp.stage.title}</b>
+                          <div class="stage-why">{gp.stage.why}</div>
+                        </div>
+                      </div>
+                    )}
+                    <ol class="objs">
+                      {gp.items.map((o) => (
+                        <li key={o.id} class={`${o.isDone ? 'done' : ''} ${cur?.id === o.id ? 'cur' : ''}`}>
+                          <span class="check">{o.isDone ? '✓' : cur?.id === o.id ? '▶' : '○'}</span>
+                          <span>
+                            {o.human && !o.label.startsWith('🧑') && (
+                              <span class="human" title="只有人能做／該由人判斷的步驟">
+                                🧑{' '}
+                              </span>
+                            )}
+                            {o.label}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                );
+              })}
               {cur && hints && tier > 0 && (
                 <div class="hints">
                   {(['方向', '指令', '直接示範'] as const).slice(0, tier).map((name, i) => (
@@ -206,12 +250,24 @@ export function LevelScreen(p: LevelProps) {
               </p>
             </div>
           )}
+          {def.id === 0 && (
+            <details class="tc-flow">
+              <summary>🗺 流程地圖：改動從哪裡到哪裡（約 90 秒，點開看）</summary>
+              <FlowMap />
+            </details>
+          )}
         </section>
       ) : (
         !def.free &&
         cur && (
           <div class="curline">
-            <span class="check">▶</span> {cur.label}
+            <span class="check">▶</span>
+            {curGroup?.stage && (
+              <span class="curstage">
+                階段 {curGroup.letter}・{curGroup.stage.title}
+              </span>
+            )}
+            {cur.label}
             {hints && tier > 0 && (
               <span class="curhint">
                 　💡 {hints[tier - 1]}
@@ -289,6 +345,18 @@ export function LevelScreen(p: LevelProps) {
         ))}
       </div>
 
+      {modal === 'flow' && (
+        <Modal onClose={() => setModal(null)} wide>
+          <h2>🗺 流程地圖</h2>
+          <p class="dim small">一個修改從你的電腦走到正式站，會經過這些地方。看不懂 AI 在做什麼的時候，回來對照這張圖。</p>
+          <FlowMap />
+          <div class="modal-btns">
+            <button class="btn primary" onClick={() => setModal(null)}>
+              關閉
+            </button>
+          </div>
+        </Modal>
+      )}
       {modal === 'rules' && <RulesModal g={g} onClose={() => setModal(null)} />}
       {modal === 'settings' && <SettingsModal p={p} onClose={() => setModal(null)} />}
       {modal === 'rewind' && (
@@ -358,6 +426,9 @@ function RulesModal({ g, onClose }: { g: Game; onClose: () => void }) {
     <Modal onClose={onClose} wide>
       <h2>📖 協作規則速查</h2>
       <p class="dim small">這一關相關的規則有標色。代號對應任務卡上的 G1、P6、§11 等。</p>
+      <p class="rules-note">
+        下面的 G／P／R／A／§ 規則是<b>這個團隊的約定</b>，別的團隊可能不一樣（例如有的團隊用 rebase、有的禁止 squash）。在這裡請照著做，但要知道它們是團隊的選擇，不是 Git 本身的規定。
+      </p>
       <div class="rules-grid">
         {groups.map((gp) => (
           <div key={gp.k}>
@@ -372,6 +443,12 @@ function RulesModal({ g, onClose }: { g: Game; onClose: () => void }) {
           </div>
         ))}
       </div>
+      <h3>Git 本身的機制（每個團隊都一樣）</h3>
+      <ul class="rules facts">
+        {GIT_FACTS.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
       <h3>AI 的權限規則（團隊設定，只比對指令的字面）</h3>
       <div class="perm-cols">
         <div>

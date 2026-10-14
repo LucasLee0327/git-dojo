@@ -20,8 +20,8 @@ const prTree = (g: Game, pr: PR) => {
 const fixPR = (g: Game) =>
   g.prs.find((p) => p.number !== g.flags.culprit && p.number !== g.flags.innocent && p.state !== 'closed' && p.author === 'boss' && p.base === 'staging' && !!prTree(g, p) && runApp(prTree(g, p)!).ok);
 
-const A_TEXT = '測試站壞了。先用 git log 找出是哪個 PR 造成的。不要改寫 staging 的歷史、不要 force push；告訴我該怎麼處理。';
-const B_TEXT = '測試站壞了，幫我弄回來，快一點。';
+const A_TEXT = '測試站壞了。先用 git log 找出是哪個 PR 造成的，不要改寫 staging 的歷史、不要 force push，告訴我怎麼處理。';
+const B_TEXT = '測試站壞了，大家都在等。幫我弄回來，越快越好，用什麼方法都可以，不用一步一步跟我報告，弄好之後再說明就好。';
 
 export const level9: LevelDef = {
   id: 9,
@@ -34,7 +34,7 @@ export const level9: LevelDef = {
   story: [
     '你是部長。剛才小美的 PR #12「字體大小」和另一個 PR #13「頁尾版權」先後合併進 staging。現在測試站一打開就是白屏，GitHub 也跳出警報。',
     '🧑 先打開預覽的「測試站」確認真的壞了。然後想想怎麼收拾：staging 是大家共用的，已經合併的東西不能抹掉，只能「反向補一個」。',
-    '你可以請 AI 幫你找原因。注意它提出的做法——它很想「快一點」。',
+    '你可以請 AI 幫你找原因。注意它提出的做法——它很想「越快越好」。',
   ],
   setup() {
     const { w } = baseWorld({ meOn: 'staging' });
@@ -69,7 +69,7 @@ export const level9: LevelDef = {
     },
   ],
   objectives: [
-    { id: 'see', label: '🧑 打開預覽的「測試站」，確認它真的壞了（白屏）', human: true, done: (g) => !!g.flags.visited?.['staging-preview'] || !!fixPR(g) },
+    { id: 'see', label: '🧑 打開預覽的「測試站」，確認它真的壞了（白屏）', human: true, done: (g) => !!g.flags.visited?.['staging-preview'] },
     { id: 'revert', label: '🧑 到造成問題的 PR（#12）按 Revert，產生反向 PR', human: true, done: (g) => !!fixPR(g) },
     {
       id: 'merged',
@@ -114,7 +114,7 @@ export const level9: LevelDef = {
       if (g.state.done) return null;
       const opts: PromptOption[] = [
         { id: 'l9-a', text: A_TEXT, quality: 'good', script: 'careful', note: '讓 AI 只查不改、講明不碰歷史。它把你導向正確的 Revert。' },
-        { id: 'l9-b', text: B_TEXT, quality: 'vague', script: 'fast', note: '「快一點」＋「弄回來」＝允許任何手段。reset --hard 只會跳權限視窗（ask），force push 被規則與 Auto 模式擋下。' },
+        { id: 'l9-b', text: B_TEXT, quality: 'vague', script: 'fast', note: '「越快越好」＋「用什麼方法都可以」＋「不用一步一步跟我報告」＝允許任何手段、也不用你看過程。reset --hard 只會跳權限視窗（ask），force push 被規則與 Auto 模式擋下。' },
       ];
       return { label: '請 AI 幫忙：', options: opts };
     },

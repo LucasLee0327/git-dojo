@@ -63,6 +63,8 @@ export interface AgentState {
 export interface Banner {
   id: string;
   text: string;
+  /** 附加的警告（例如「還沒看就轉 Ready」），接在關卡陷阱訊息後面 */
+  extra?: string;
 }
 
 export interface GameState {

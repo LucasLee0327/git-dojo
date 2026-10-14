@@ -3,7 +3,9 @@ import { ancestors, checkoutClean, logHead, makeCommit, treeOf } from '../git/re
 import { runApp } from '../site/runner';
 import { withFooterCopyright } from '../site/files';
 import { baseWorld, bossPolicy, tipTree } from './common';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
+
+const EV_PR: EvTab[] = ['checks'];
 
 const stageB = (g: Game) => !!g.flags['ev:stage-b'];
 const localBranches = (g: Game) => Object.keys(g.me.branches).filter((b) => b !== 'staging' && b !== 'master');
@@ -101,7 +103,14 @@ export const level4: LevelDef = {
       done: (g) => !!fixBranch(g),
     },
     { id: 'push', show: stageB, label: '4b：把 fix 分支 push 上去（-u）', done: (g) => { const b = fixBranch(g); return !!b && (g.origin.branches[b] === g.me.branches[b] || !!fixPR(g)); } },
-    { id: 'pr', show: stageB, label: '4b：🧑 開 PR（目標 staging），轉成 Ready', human: true, done: (g) => { const p = fixPR(g); return !!p && !p.draft; } },
+    {
+      id: 'pr',
+      show: stageB,
+      label: '4b：🧑 開 PR（目標 staging）、打開 Checks 看過，再轉成 Ready',
+      human: true,
+      evidence: { on: ['ready'], pr: fixPR, tabs: EV_PR, rule: 'P4' },
+      done: (g) => { const p = fixPR(g); return !!p && !p.draft && g.checkedPR(p.number, EV_PR); },
+    },
     {
       id: 'fixed',
       show: stageB,
@@ -131,7 +140,7 @@ export const level4: LevelDef = {
       'git switch -c fix/revert-footer\ngit revert HEAD --no-edit',
     ],
     push: ['fix 分支也要先推上 GitHub 才能開 PR。', 'git push -u origin fix/revert-footer', 'git push -u origin fix/revert-footer'],
-    pr: ['到 GitHub 分頁開 PR，目標 staging，直接 Ready（緊急修復不用 Draft）。', '建立 PR 後按 Ready for review。', '部長會審查。'],
+    pr: ['到 GitHub 分頁開 PR，目標 staging，先用 Draft 建立（緊急修復也一樣）。', '建立 PR 後打開 Checks 分頁確認全綠（要真的打開，任務才會打勾），再按 Ready for review。', '部長會審查。若直接以 Ready 開出、沒看 Checks，可以回 PR 頁補看。'],
     fixed: ['等部長合併。', '合併後切到預覽的「測試站」看看是否恢復。', '看右上角通知。'],
   },
   success: {

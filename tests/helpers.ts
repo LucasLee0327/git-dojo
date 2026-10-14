@@ -1,5 +1,6 @@
 import { expect } from 'vitest';
 import { Game } from '../src/core/game';
+import type { EvTab } from '../src/levels/types';
 import { findOverlaps } from '../src/ui/graph/layout';
 import { buildModel, layoutModel, type GraphView } from '../src/ui/graph/model';
 
@@ -61,3 +62,9 @@ export function fileOf(g: Game, where: 'me' | 'origin', branch: string, path: st
   const id = tipOf(g, where, branch);
   return id ? g.w.objects[id].tree[path] : undefined;
 }
+
+/** 玩家打開某個 PR 的指定分頁（Files changed／Checks／預覽站）；沒指定＝三個都看 */
+export function look(g: Game, n: number, ...tabs: EvTab[]) {
+  for (const t of tabs.length ? tabs : (['files', 'checks', 'preview'] as EvTab[])) g.viewPR(n, t);
+}
+export const lookAll = (g: Game, n: number) => look(g, n);

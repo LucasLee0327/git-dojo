@@ -6,7 +6,28 @@ import type { Checkpoint, GameState } from '../core/types';
 export const SAVE_VERSION = 1;
 const PREFIX = `git-dojo:v${SAVE_VERSION}:`;
 const META_KEY = `${PREFIX}meta`;
-const levelKey = (id: number) => `${PREFIX}level:${id}`;
+// 關卡內容版本：只影響「進行中的關卡存檔」，不影響 META（完成紀錄、速度等）。
+// 維護者注意：只要任何關卡的初始設定或目標做了不相容的修改（舊存檔還原出來會和新關卡定義對不上），
+// 就把 LEVEL_REV 加一。舊版本的進行中存檔會被忽略並清掉；完成紀錄保留。
+export const LEVEL_REV = 2;
+const levelKey = (id: number) => `${PREFIX}level:r${LEVEL_REV}:${id}`;
+const MAX_LEVEL_ID = 20;
+
+/** 清掉舊格式（無版本號）與舊版本號的關卡存檔。盡力而為，絕不丟例外。 */
+function purgeStale(id: number) {
+  try {
+    rawRemove(`${PREFIX}level:${id}`);
+    for (let r = 1; r < LEVEL_REV; r++) rawRemove(`${PREFIX}level:r${r}:${id}`);
+  } catch {
+    /* 忽略 */
+  }
+}
+let swept = false;
+function sweepStale() {
+  if (swept) return;
+  swept = true;
+  for (let i = 0; i <= MAX_LEVEL_ID; i++) purgeStale(i);
+}
 
 export type Speed = 'slow' | 'normal' | 'fast' | 'instant';
 
@@ -17,9 +38,11 @@ export interface Meta {
   speed: Speed;
   panelOpen: boolean;
   seenWelcome: boolean;
+  /** 第 0 關的流程地圖視窗是否已自動開過一次（舊存檔沒有此欄位，預設 false） */
+  seenFlowMap?: boolean;
 }
 
-const DEFAULT_META: Meta = { v: 1, lastLevel: null, completed: [], speed: 'normal', panelOpen: true, seenWelcome: false };
+const DEFAULT_META: Meta = { v: 1, lastLevel: null, completed: [], speed: 'normal', panelOpen: true, seenWelcome: false, seenFlowMap: false };
 
 // ---- 最底層：能用 localStorage 就用，否則退回記憶體 ----
 const mem = new Map<string, string>();
@@ -105,10 +128,14 @@ interface Slot {
 }
 
 export function hasSave(id: number): boolean {
+  sweepStale();
+  purgeStale(id);
   return rawGet(levelKey(id)) !== null;
 }
 
 export function loadLevel(id: number): Game | null {
+  sweepStale();
+  purgeStale(id);
   try {
     const raw = rawGet(levelKey(id));
     if (!raw) return null;
@@ -161,7 +188,10 @@ export function clearLevel(id: number) {
 }
 
 export function clearAll() {
-  for (let i = 0; i <= 20; i++) rawRemove(levelKey(i));
+  for (let i = 0; i <= MAX_LEVEL_ID; i++) {
+    purgeStale(i);
+    rawRemove(levelKey(i));
+  }
   rawRemove(META_KEY);
 }
 

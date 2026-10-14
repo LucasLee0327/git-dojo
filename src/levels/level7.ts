@@ -6,7 +6,9 @@ import { checksGreen, mergeInfo, mergePR } from '../github/github';
 import { fixRecentName, withRecent, withRename } from '../site/files';
 import { runApp, runTests } from '../site/runner';
 import { baseWorld, botPush, bossPolicy, editSite, newPR, siteTree } from './common';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
+
+const EV_READY: EvTab[] = ['checks', 'preview'];
 
 const FEAT = 'feat/recent';
 const myPR = (g: Game) => g.prs.find((p) => p.head === FEAT);
@@ -21,8 +23,8 @@ const stagingOk = (g: Game) => {
   return runApp(t).ok && runTests(t).ok && (t['app.js'] ?? '').includes('renderRecent');
 };
 
-const A_TEXT = '我在 GitHub 上按了 Update branch，PR 的 CI 變紅了。請先 git pull 把遠端的新 commit 合進來，再找出紅燈的原因並修好，跑 npm test 通過後 commit、push。不要 force。';
-const B_TEXT = 'PR 的 CI 紅了，幫我修好。';
+const A_TEXT = '按了 Update branch 後 CI 變紅了。先 git pull，再找出紅燈原因並修好，npm test 通過後 commit、push，不要 force。';
+const B_TEXT = 'PR 的 CI 紅了，幫我修好。重跑 CI 或重新推一次都可以，這個 PR 我下午前就要送審，其他的我不太懂，麻煩你盡快搞定。';
 const C_TEXT = '我的 PR 顯示落後 staging，幫我看看 staging 多了什麼，要不要緊？';
 
 export const level7: LevelDef = {
@@ -80,7 +82,13 @@ export const level7: LevelDef = {
       label: '更新後 CI 會變紅——找出原因、修好，讓 CI 重新變綠',
       done: (g) => merged(g) || (!!myPR(g) && !behind(g) && checksGreen(g.w, myPR(g)!)),
     },
-    { id: 'ready', label: '🧑 CI 綠燈、確認預覽正常後，轉成 Ready for review', human: true, done: (g) => !!myPR(g) && !behind(g) && (!myPR(g)!.draft || merged(g)) },
+    {
+      id: 'ready',
+      label: '🧑 打開 PR 的 Checks（綠燈）和預覽站（正常）看過，再轉成 Ready for review',
+      human: true,
+      evidence: { on: ['ready'], pr: myPR, tabs: EV_READY, rule: 'P4' },
+      done: (g) => !!myPR(g) && !behind(g) && (!myPR(g)!.draft || merged(g)) && g.checkedPR(myPR(g)!.number, EV_READY),
+    },
     { id: 'merged', label: '部長合併後，測試站正常（有「最近讀過」，沒有白屏）', done: (g) => merged(g) && stagingOk(g) },
   ],
   hints: {
@@ -94,7 +102,7 @@ export const level7: LevelDef = {
       '錯誤訊息會提到 formatTitle——它被改名成 formatChapterTitle 了。你的 renderRecent 和那個測試都要改用新名字。',
       '請 AI 修，或自己：把 app.js 與 tests/app.test.js 裡 renderRecent 用到的 formatTitle 改成 formatChapterTitle → git add → git commit → git push。',
     ],
-    ready: ['轉 Ready 之前：CI 全綠、預覽自己點過（P4）。', '到 GitHub 分頁 → PR → 確認 Checks 綠燈、預覽有「最近讀過」→ Ready for review。', '在 PR 頁面按 Ready for review。'],
+    ready: ['轉 Ready 之前：CI 全綠、預覽自己點過（P4）——要真的打開 Checks 和預覽站分頁，任務才會打勾（修好 CI 的新 commit 之後要重看）。', '到 GitHub 分頁 → PR → 點 Checks 確認綠燈、點預覽站確認有「最近讀過」→ Ready for review。', '在 PR 頁面點 Checks、預覽站各一次，再按 Ready for review。'],
     merged: ['等部長審查合併。', '合併後到「測試站」預覽確認。', '看右上角通知。'],
   },
   agent: {

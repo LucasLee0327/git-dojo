@@ -230,10 +230,13 @@ function NewPR({ g, go, head }: { g: Game; go: (r: Route) => void; head?: string
 
 function PRPage({ g, n, tab, go }: { g: Game; n: number; tab: 'conv' | 'files' | 'checks' | 'preview'; go: (r: Route) => void }) {
   const pr = g.pr(n);
+  const sha = pr ? g.headSha(pr) : null;
+  // 打開分頁＝看過：記下「哪個 PR、哪個分頁、PR 當時的 head commit」（PR 有新 commit 就要重看）
   useEffect(() => {
     if (tab === 'files') g.visit('pr-files');
     if (tab === 'preview') g.visit('pr-preview');
-  }, [tab, n]);
+    if (tab !== 'conv') g.viewPR(n, tab);
+  }, [tab, n, sha]);
   if (!pr) return <p class="pad">找不到這個 PR。</p>;
   const files = prFiles(g.w, pr);
   const checks = prChecks(g.w, pr);
@@ -262,12 +265,12 @@ function PRPage({ g, n, tab, go }: { g: Game; n: number; tab: 'conv' | 'files' |
         {T('conv', '對話')}
         {T('files', 'Files changed', String(files.length))}
         {T('checks', 'Checks', checks.length ? (red ? '✗' : '✓') : '')}
-        {pr.state === 'open' && T('preview', '預覽站')}
+        {(pr.state === 'open' || pr.state === 'merged') && T('preview', '預覽站')}
       </nav>
       {tab === 'conv' && <Conversation g={g} pr={pr} />}
       {tab === 'files' && <Files files={files} />}
       {tab === 'checks' && <Checks checks={checks} />}
-      {tab === 'preview' && <SitePreview tree={prPreviewTree(g.w, pr)} env="pr" sub={`PR #${pr.number}`} />}
+      {tab === 'preview' && <SitePreview tree={prPreviewTree(g.w, pr)} env="pr" sub={`PR #${pr.number}${pr.state === 'merged' ? '（已合併，顯示合併前最後一版）' : ''}`} />}
     </div>
   );
 }

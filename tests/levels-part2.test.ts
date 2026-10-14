@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMsg } from '../src/core/types';
-import { expectDone, fileOf, notDone, say, start, T } from './helpers';
+import { expectDone, fileOf, lookAll, notDone, say, start, T } from './helpers';
 import type { Game } from '../src/core/game';
 
 const tools = (g: Game) => g.state.chat.filter((m): m is Extract<ChatMsg, { t: 'tool' }> => m.t === 'tool');
@@ -16,6 +16,7 @@ describe('第 5 關', () => {
     const pr = g.prs.find((p) => p.head === 'feat/bookmark')!;
     expect(pr.draft).toBe(true);
     expect(notDone(g)).toEqual(['ready', 'merged']);
+    lookAll(g, pr.number);
     g.ghReady(pr.number);
     expectDone(g);
     expect(fileOf(g, 'origin', 'staging', 'app.js')).toContain('toggleBookmark');
@@ -49,6 +50,7 @@ describe('第 5 關', () => {
     say(g, 'l5-fix');
     expect(g.state.traps).not.toContain('ai-deleted-test');
     const pr = g.prs.find((p) => p.head === 'feat/bookmark')!;
+    lookAll(g, pr.number);
     g.ghReady(pr.number);
     expectDone(g);
   });
@@ -78,6 +80,7 @@ describe('第 5 關', () => {
     expect(g.me.branches.staging).toBe(g.origin.branches.staging);
     const pr = g.prs.find((p) => p.head === 'feat/bookmark')!;
     expect(pr).toBeTruthy();
+    lookAll(g, pr.number);
     g.ghReady(pr.number);
     expectDone(g);
   });
@@ -113,6 +116,7 @@ describe('第 6 關', () => {
     expect(toolBy(g, /^git push$/)!.state).toBe('done');
     expect(g.origin.branches['feat/highlight']).toBe(g.me.branches['feat/highlight']);
     expect(notDone(g)).toEqual(['ready', 'merged']);
+    lookAll(g, PR(g).number);
     g.ghReady(PR(g).number);
     expectDone(g);
   });
@@ -172,6 +176,7 @@ describe('第 6 關', () => {
     g.decidePermission('deny');
     expect(g.agentRun()).toBe('idle');
     expect(g.origin.branches['feat/highlight']).toBe(g.me.branches['feat/highlight']);
+    lookAll(g, PR(g).number);
     g.ghReady(PR(g).number);
     expectDone(g);
   });
@@ -181,6 +186,7 @@ describe('第 6 關', () => {
     T(g, 'git fetch', 'git merge origin/staging');
     g.saveFile('app.js', g.me.work['app.js'].replace(/<<<<<<< HEAD\n[\s\S]*?>>>>>>> [^\n]*\n/, "  p.textContent = highlight(ch.body) + '（' + wordCount(ch.body) + ' 字）';\n"));
     T(g, 'git add app.js', 'git commit -m "合併 staging"', 'git push', 'git pull', 'git push');
+    lookAll(g, PR(g).number);
     g.ghReady(PR(g).number);
     expectDone(g);
   });
@@ -213,6 +219,7 @@ describe('第 7 關', () => {
     expect(g.offer()!.options.map((o) => o.id)).toEqual(['l7-a', 'l7-b']);
     say(g, 'l7-a');
     expect(green(g)).toBe(true);
+    lookAll(g, PR(g).number);
     g.ghReady(PR(g).number);
     expectDone(g);
   });
@@ -245,6 +252,7 @@ describe('第 7 關', () => {
     expect(toolBy(g, /^git push --force$/)!.state).toBe('blocked');
     expect(toolBy(g, /\+feat\/recent/)!.state).toBe('auto-blocked');
     expect(green(g)).toBe(true);
+    lookAll(g, PR(g).number);
     g.ghReady(PR(g).number);
     expectDone(g);
   });
@@ -257,6 +265,7 @@ describe('第 7 關', () => {
     g.me.work['app.js'] = g.me.work['app.js'].split('return formatTitle(CHAPTERS').join('return formatChapterTitle(CHAPTERS');
     g.me.work['tests/app.test.js'] = g.me.work['tests/app.test.js'].split('toContain(formatTitle(').join('toContain(formatChapterTitle(');
     T(g, 'git add app.js tests/app.test.js', 'git commit -m fix', 'git push');
+    lookAll(g, PR(g).number);
     g.ghReady(PR(g).number);
     expectDone(g);
   });

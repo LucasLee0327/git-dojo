@@ -19,12 +19,22 @@ import {
 } from '../github/github';
 import { syncMei } from '../github/bots';
 import { getLevel } from '../levels';
-import type { LevelDef, Objective } from '../levels/types';
+import type { EvTab, LevelDef, Objective } from '../levels/types';
 import { runShellLine, splitCommands } from './shell';
 import type { AgentState, ChatMsg, Checkpoint, GameState } from './types';
 
 const MAX_CHECKPOINTS = 10;
 type NewChat = ChatMsg extends infer M ? (M extends { id: number } ? Omit<M, 'id'> : never) : never;
+
+/** 「看過」的證據：玩家在某個 PR 的某個分頁、PR 當時指向的 commit（存在 flags.evidence） */
+export interface EvidenceRec {
+  pr: number;
+  tab: EvTab;
+  sha: string;
+}
+
+const TAB_NAME: Record<EvTab, string> = { files: 'Files changed', checks: 'Checks', preview: '預覽站' };
+const ACTION_VERB = { ready: '轉成 Ready', review: '送出審查', merge: '合併' } as const;
 
 export const emptyAgent = (): AgentState => ({ frames: [], status: 'idle', armedTool: null, pendingTool: null });
 
@@ -197,11 +207,81 @@ export class Game {
     const b = this.state.banner;
     if (!b) return '';
     const t = (this.def.traps ?? []).find((x) => x.id === b.id);
+    let base: string;
     try {
-      return (t && t.test(this)) || b.text;
+      base = (t && t.test(this)) || b.text;
     } catch {
-      return b.text;
+      base = b.text;
     }
+    return b.extra ? `${base}\n${b.extra}` : base;
+  }
+
+  // ---------- 「看過」證據（綁定 PR 目前的 head commit） ----------
+  /** PR 目前指向的 commit：open＝origin 上 head 分支的最新一個；merged＝合併當下的 finalHead */
+  headSha(pr: PR): string | null {
+    return (pr.state === 'open' ? this.origin.branches[pr.head] : pr.finalHead) ?? null;
+  }
+  /** 玩家打開了某個 PR 的 Files changed／Checks／預覽站：記下「PR 號、分頁、當時的 head commit」 */
+  viewPR(n: number, tab: EvTab) {
+    const pr = this.pr(n);
+    const sha = pr && this.headSha(pr);
+    if (!pr || !sha) return;
+    const list: EvidenceRec[] = (this.state.flags.evidence ??= []);
+    if (list.some((e) => e.pr === n && e.tab === tab && e.sha === sha)) return;
+    list.push({ pr: n, tab, sha });
+    this.post();
+  }
+  /** 每個列出的分頁，都在 PR「目前的」head 看過？（PR 後來又有新 commit，舊的不算） */
+  checkedPR(n: number, tabs: EvTab[]): boolean {
+    const pr = this.pr(n);
+    const sha = pr && this.headSha(pr);
+    if (!pr || !sha) return false;
+    const list: EvidenceRec[] = this.state.flags.evidence ?? [];
+    return tabs.every((t) => list.some((e) => e.pr === n && e.tab === t && e.sha === sha));
+  }
+  /** 每個列出的分頁，在任何一版 head 看過就算（「第一次看」類任務用） */
+  seenPR(n: number, tabs: EvTab[]): boolean {
+    const list: EvidenceRec[] = this.state.flags.evidence ?? [];
+    return tabs.every((t) => list.some((e) => e.pr === n && e.tab === t));
+  }
+  /** 對 PR n 做 on 這個動作時，關卡要求但還沒看的分頁（stale＝看過舊版，PR 之後有新 commit） */
+  private evidenceGap(on: 'ready' | 'review' | 'merge', n: number): { tabs: { tab: EvTab; stale: boolean }[]; rules: string[] } {
+    const tabs = new Map<EvTab, boolean>();
+    const rules = new Set<string>();
+    for (const o of this.def.objectives) {
+      const ev = o.evidence;
+      if (!ev || !ev.on.includes(on)) continue;
+      const pr = safeVal(() => ev.pr(this));
+      if (!pr || pr.number !== n) continue;
+      for (const t of ev.tabs) {
+        const ok = ev.anyHead ? this.seenPR(n, [t]) : this.checkedPR(n, [t]);
+        if (ok) continue;
+        tabs.set(t, this.seenPR(n, [t]));
+        if (ev.rule) rules.add(ev.rule);
+      }
+    }
+    return { tabs: [...tabs].map(([tab, stale]) => ({ tab, stale })), rules: [...rules] };
+  }
+  /** 缺證據就用橫幅警告（不擋操作；只是這一格不會打勾） */
+  private warnGap(on: 'ready' | 'review' | 'merge', gap: ReturnType<Game['evidenceGap']>) {
+    if (!gap.tabs.length) return;
+    const names = gap.tabs.map((x) => TAB_NAME[x.tab] + (x.stale ? '（只看過舊版，PR 之後又有新 commit）' : '')).join('、');
+    const rule = gap.rules.length ? `（${gap.rules.join('/')}）` : '';
+    const text = `⚠ 你還沒看 ${names} 就${ACTION_VERB[on]}了${rule}。可以繼續，但這一格不會打勾——回 PR 頁把缺的分頁看過。`;
+    const b = this.state.banner;
+    if (!b) this.state.banner = { id: `evidence:${on}`, text };
+    else if (!b.extra?.includes(text)) b.extra = b.extra ? `${b.extra}\n${text}` : text;
+    this.emit();
+  }
+  /** 記下動作前的 PR 草稿狀態；動作後呼叫回傳的函式，對「新轉成 Ready／直接以 Ready 開出」的 PR 檢查證據 */
+  private watchReady(): () => void {
+    const before = new Map(this.prs.map((p) => [p.number, p.draft]));
+    return () => {
+      for (const p of this.prs) {
+        const was = before.get(p.number);
+        if (!p.draft && (was === undefined || was === true)) this.warnGap('ready', this.evidenceGap('ready', p.number));
+      }
+    };
   }
 
   objectives(): (Objective & { isDone: boolean })[] {
@@ -222,6 +302,11 @@ export class Game {
     return true;
   }
 
+  /** 你在這一關的身分（lead＝部長；其他＝部員）。終端機與 AI 的 gh 指令都以這個身分執行 */
+  private actor(): Actor {
+    return this.def.role === 'lead' ? 'boss' : 'me';
+  }
+
   // ---------- 終端機 ----------
   runTerminal(line: string) {
     const raw = line.trim();
@@ -238,7 +323,8 @@ export class Game {
     const before = mutating ? JSON.stringify(this.w) : '';
     if (mutating) this.pushCheckpoint(`指令：${raw.length > 30 ? raw.slice(0, 30) + '…' : raw}`);
     s.term.push({ kind: 'cmd', text: raw, branch: br, src: 'user' });
-    const res = runShellLine(this.w, 'me', raw, 'me');
+    const warnReady = /^gh pr (create|ready)/.test(raw) ? this.watchReady() : null;
+    const res = runShellLine(this.w, 'me', raw, this.actor());
     // 沒有改到任何東西（例如被拒絕的指令）就不留檢查點
     if (mutating && JSON.stringify(this.w) === before) this.checkpoints.pop();
     if (res.out) s.term.push({ kind: res.code === 0 ? 'out' : 'err', text: res.out });
@@ -246,6 +332,7 @@ export class Game {
     s.hist.push({ cmd: raw, code: res.code, src: 'user', tag: res.tag, branch: br, seq: this.nextId() });
     if (s.term.length > 400) s.term.splice(0, s.term.length - 400);
     this.post();
+    warnReady?.();
   }
 
   // ---------- 編輯器 ----------
@@ -267,10 +354,12 @@ export class Game {
 
   // ---------- GitHub 網頁操作 ----------
   ghCreatePR(o: { title: string; body: string; head: string; base: string; draft: boolean }): { pr?: PR; error?: string } {
+    const warn = this.watchReady();
     const res = createPR(this.w, { ...o, author: 'me' });
     if (res.pr) {
       this.state.hist.push({ cmd: `[GitHub] 開${o.draft ? ' Draft ' : ' '}PR #${res.pr.number}`, code: 0, src: 'user', tag: 'gh-web-create', seq: this.nextId() });
       this.post();
+      warn();
     }
     return res;
   }
@@ -278,9 +367,11 @@ export class Game {
     const pr = this.pr(n);
     if (!pr) return;
     this.pushCheckpoint(`把 PR #${n} 轉成 Ready`);
+    const warn = this.watchReady();
     markReady(pr, this.def.role === 'lead' ? 'boss' : 'me');
     this.state.hist.push({ cmd: `[GitHub] PR #${n} Ready for review`, code: 0, src: 'user', tag: 'gh-web-ready', seq: this.nextId() });
     this.post();
+    warn();
   }
   ghDraft(n: number) {
     const pr = this.pr(n);
@@ -303,10 +394,12 @@ export class Game {
     if (!pr) return '找不到 PR';
     this.pushCheckpoint(`合併 PR #${n}（${method === 'squash' ? 'Squash and merge' : 'Create a merge commit'}）`);
     const by: Actor = this.def.role === 'lead' ? 'boss' : 'me';
+    const gap = this.evidenceGap('merge', n);
     const res = mergePR(this.w, pr, method, by);
     if (res.ok) this.state.hist.push({ cmd: `[GitHub] 合併 PR #${n} (${method})`, code: 0, src: 'user', tag: 'gh-web-merge', seq: this.nextId() });
     else this.checkpoints.pop();
     this.post();
+    if (res.ok) this.warnGap('merge', gap);
     return res.ok ? null : res.error ?? null;
   }
   ghRevert(n: number): string | null {
@@ -321,9 +414,11 @@ export class Game {
     const pr = this.pr(n);
     if (!pr) return;
     this.pushCheckpoint(`對 PR #${n} 送出審查`);
+    const gap = this.evidenceGap('review', n);
     submitReview(this.w, pr, this.def.role === 'lead' ? 'boss' : 'me', state, body, todos);
     this.state.hist.push({ cmd: `[GitHub] 審查 PR #${n}：${state}`, code: 0, src: 'user', tag: 'gh-web-review', seq: this.nextId() });
     this.post();
+    this.warnGap('review', gap);
   }
   ghComment(n: number, body: string) {
     const pr = this.pr(n);
@@ -492,7 +587,7 @@ export class Game {
     const f = this.topFrame();
     const br = this.branch;
     m.state = 'running';
-    const res = runShellLine(this.w, 'me', step.cmd, 'me');
+    const res = runShellLine(this.w, 'me', step.cmd, this.actor());
     m.out = [res.out].filter(Boolean).join('\n');
     m.code = res.code;
     m.state = 'done';
@@ -589,10 +684,18 @@ export function isMutating(line: string): boolean {
     const c = p.cmd.replace(/\s+/g, ' ').trim();
     if (/^git (add|commit|push|pull|merge|rebase|reset|revert|cherry-pick|switch|checkout|restore|rm|stash|clean|config|remote|fetch|mv|tag)\b/.test(c)) return true;
     if (/^git branch\b/.test(c)) return /\s-(d|D|m|M|u)\b|--set-upstream-to|--unset-upstream|--delete|--move/.test(c) || /^git branch [^-]/.test(c);
-    if (/^gh pr (create|merge|ready)\b/.test(c)) return true;
+    if (/^gh pr (create|merge|ready|review)\b/.test(c)) return true;
     if (/^(rm|touch|mkdir)\b/.test(c) || /^echo .*>/.test(c)) return true;
     return false;
   });
+}
+
+function safeVal<T>(fn: () => T): T | undefined {
+  try {
+    return fn();
+  } catch {
+    return undefined;
+  }
 }
 
 function safe(fn: () => boolean): boolean {

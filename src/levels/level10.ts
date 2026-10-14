@@ -6,7 +6,9 @@ import { createPR, mergePR } from '../github/github';
 import { withBookmark, withDark, withTitle1 } from '../site/files';
 import { runApp } from '../site/runner';
 import { baseWorld, newPR, siteTree } from './common';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
+
+const EV_MERGE: EvTab[] = ['checks'];
 
 const rel = (g: Game): PR | undefined => g.prs.find((p) => p.head === 'staging' && p.base === 'master');
 const masterTree = (g: Game) => g.w.objects[g.origin.branches.master].tree;
@@ -69,15 +71,16 @@ export const level10: LevelDef = {
     },
   ],
   objectives: [
-    { id: 'preview', label: '🧑 先到預覽看過「測試站」和「正式站」，確認要發布的內容', human: true, done: (g) => !!(g.flags.visited?.['staging-preview'] && g.flags.visited?.['production-preview']) || !!rel(g) },
+    { id: 'preview', label: '🧑 先到預覽看過「測試站」和「正式站」，確認要發布的內容', human: true, done: (g) => !!(g.flags.visited?.['staging-preview'] && g.flags.visited?.['production-preview']) },
     { id: 'pr', label: '🧑 開一個 PR：head＝staging、base＝master', human: true, done: (g) => !!rel(g) },
     {
       id: 'merged',
-      label: '🧑 確認 Checks 全綠後，用 Create a merge commit 合併；正式站出現新功能',
+      label: '🧑 打開 PR 的 Checks 確認全綠，再用 Create a merge commit 合併；正式站出現新功能',
       human: true,
+      evidence: { on: ['merge'], pr: rel, tabs: EV_MERGE },
       done: (g) => {
         const p = rel(g);
-        return !!p && p.state === 'merged' && p.mergeMethod === 'merge' && !!p.finalHead && isAncestor(g.w, p.finalHead, g.origin.branches.master) && runApp(masterTree(g)).ok && (masterTree(g)['app.js'] ?? '').includes('toggleBookmark');
+        return !!p && p.state === 'merged' && p.mergeMethod === 'merge' && g.checkedPR(p.number, EV_MERGE) && !!p.finalHead && isAncestor(g.w, p.finalHead, g.origin.branches.master) && runApp(masterTree(g)).ok && (masterTree(g)['app.js'] ?? '').includes('toggleBookmark');
       },
     },
   ],
@@ -87,7 +90,7 @@ export const level10: LevelDef = {
     merged: [
       '上線 PR 的合併方式要想一下：Squash 把 staging 上很多 commit 壓成一個新 commit，Git 之後認不出它們是同一批東西。',
       '選 Create a merge commit：master 上會多一個 merge commit，staging 的每個 commit 都原封不動被帶過去。',
-      '在 PR 頁面選「Create a merge commit」，按合併。',
+      '先在 PR 頁面打開 Checks 分頁看過（任務才會打勾），再選「Create a merge commit」，按合併。沒看就合併也可以，之後回 PR 頁補看。',
     ],
   },
   success: {

@@ -1,5 +1,5 @@
 // 終端機：把一行文字解析成指令（git / gh / ls / cat …）並執行。
-import { execGit, getStatus, isIgnored } from '../git/engine';
+import { diffTrees, execGit, getStatus, isIgnored } from '../git/engine';
 import { REPO_WEB, currentBranch } from '../git/repo';
 import type { Actor, CmdResult, RepoName, World } from '../git/types';
 import {
@@ -11,6 +11,8 @@ import {
   mergePR,
   prByHead,
   prChecks,
+  prTrees,
+  submitReview,
 } from '../github/github';
 import { runTests } from '../site/runner';
 
@@ -71,7 +73,7 @@ export function splitCommands(line: string): { cmd: string; op: '&&' | ';' | nul
 export const HELP_TEXT = `這個練習場的終端機支援：
   git status | add | restore | commit | switch | checkout | branch | log | diff | show
       fetch | pull | push | merge | rebase | reset | revert | cherry-pick | stash | reflog | config
-  gh pr create | view | list | ready | checks | merge
+  gh pr create | view | list | ready | checks | diff | review | merge
   ls [-a] | cat <檔案> | rm <檔案> | echo | pwd | clear | npm test
 小技巧：↑/↓ 叫出上一個指令；Tab 自動補完分支或檔名。`;
 
@@ -131,6 +133,25 @@ function ghPr(w: World, repo: RepoName, args: string[], actor: Actor): CmdResult
     const cs = prChecks(w, pr);
     return { out: cs.map((c) => `${c.ok ? '✓' : 'X'}\t${c.name}`).join('\n') || 'no checks reported', code: cs.every((c) => c.ok) ? 0 : 1, tag: 'gh-pr-checks' };
   }
+  if (sub === 'diff') {
+    const t = prTrees(w, pr);
+    return { out: t ? diffTrees(t.from, t.to) : '', code: 0, explain: '這是這個 PR 相對於基底分支的完整修改（和 GitHub 上 Files changed 同一份）。只讀 diff 看不到頁面實際長什麼樣、按鈕按了會怎樣。', tag: 'gh-pr-diff' };
+  }
+  if (sub === 'review') {
+    const body = flag(['--body', '-b']) ?? '';
+    const kinds = [has('--approve', '-a') && 'approved', has('--request-changes', '-r') && 'changes_requested', has('--comment', '-c') && 'commented'].filter(Boolean) as ('approved' | 'changes_requested' | 'commented')[];
+    if (kinds.length !== 1) return { out: 'specify exactly one of `--approve`, `--request-changes`, or `--comment`', code: 1, tag: 'gh-pr-review' };
+    if (pr.state !== 'open') return { out: `X Pull request #${pr.number} is not open`, code: 1, tag: 'gh-pr-review' };
+    if (kinds[0] !== 'approved' && !body) return { out: 'body cannot be blank for this review type', code: 1, tag: 'gh-pr-review' };
+    submitReview(w, pr, actor, kinds[0], body);
+    const msg = kinds[0] === 'approved' ? 'Approved' : kinds[0] === 'changes_requested' ? 'Requested changes to' : 'Reviewed';
+    return {
+      out: `✓ ${msg} pull request #${pr.number}`,
+      code: 0,
+      explain: '審查結果（Approve／Request changes）是審查者本人看過預覽與 Files changed 之後的判斷；用指令送出的審查，和在 GitHub 網頁上按的一樣算數。',
+      tag: 'gh-pr-review',
+    };
+  }
   if (sub === 'merge') {
     const method = has('--merge', '-m') ? 'merge' : 'squash';
     const res = mergePR(w, pr, method, actor);
@@ -155,7 +176,7 @@ function runSimple(w: World, repo: RepoName, tokens: string[], actor: Actor): Cm
       return execGit(w, repo, args);
     case 'gh':
       if (args[0] === 'pr') return ghPr(w, repo, args.slice(1), actor);
-      return { out: 'gh：練習場只支援 gh pr create / view / list / ready / checks / merge', code: 1, tag: 'gh' };
+      return { out: 'gh：練習場只支援 gh pr create / view / list / ready / checks / diff / review / merge', code: 1, tag: 'gh' };
     case 'ls': {
       const all = args.some((a) => a.startsWith('-') && a.includes('a'));
       const tops = new Set<string>();

@@ -36,6 +36,16 @@ export const RULES: RuleDef[] = [
   { code: '§11', group: 'S', text: '出事時：按 Esc 讓 AI 停下來；已經 push 或動到別人的分支，立刻通知部長；已經合併進 staging 的錯誤，用 GitHub 的 Revert 處理，不改寫歷史、不 force push。' },
 ];
 
+/** Git 本身的行為（不是團隊約定）：上面的規則是建立在這些事實上 */
+export const GIT_FACTS: string[] = [
+  'push 時如果 GitHub 上有你本機沒有的 commit，會被拒絕——Git 不讓你蓋掉別人的東西。',
+  'git pull ＝ git fetch ＋ 合併（merge）；設定 pull.rebase 的話，第二步改成 rebase。',
+  'git add 是把檔案放進「暫存區（staging area）」，和 staging 分支沒有關係。',
+  'Squash and merge 會在目標分支上產生一個全新的 commit，所以 git branch -d 認不出你的分支已經合併過，才需要 -D。',
+  'git revert 是新增一個 commit 去抵銷舊的，歷史不變；git reset 是把分支指標移回去，commit 之後不容易找回來。',
+  '已經 push 的歷史如果被改寫（amend、rebase、reset），就得 force push 才推得上去，會蓋掉別人在同一條分支上的 commit。',
+];
+
 export const ruleOf = (code: string): RuleDef | undefined => RULES.find((r) => r.code === code);
 
 /** 'G7/G9' 這種合併寫法拆成多個代號 */

@@ -66,9 +66,12 @@ export function PreviewTab({ g }: { g: Game }) {
   const [prN, setPrN] = useState<number | null>(null);
   const pr = open.find((p) => p.number === prN) ?? open[open.length - 1] ?? null;
 
+  const prSha = pr ? g.headSha(pr) : null;
   useEffect(() => {
     g.visit(env === 'local' ? 'preview' : env === 'pr' ? 'pr-preview' : env === 'staging' ? 'staging-preview' : 'production-preview');
-  }, [env]);
+    // 看的是哪個 PR、當時的 head commit 也要記下來（PR 有新 commit 就要重看）
+    if (env === 'pr' && pr) g.viewPR(pr.number, 'preview');
+  }, [env, pr?.number, prSha]);
 
   let tree: Files | null = null;
   let sub = '';

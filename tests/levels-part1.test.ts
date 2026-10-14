@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expectDone, fileOf, lastCode, lastOut, notDone, say, start, T } from './helpers';
+import { expectDone, fileOf, lastCode, lastOut, lookAll, notDone, say, start, T } from './helpers';
 
 describe('第 0 關', () => {
   it('標準解', () => {
@@ -27,6 +27,7 @@ describe('第 1 關', () => {
     expect(lastCode(g)).toBe(0);
     const res = g.ghCreatePR({ title: '新增深色模式按鈕', body: '', head: 'feat/dark-mode', base: 'staging', draft: true });
     expect(res.pr).toBeTruthy();
+    lookAll(g, res.pr!.number);
     g.ghReady(res.pr!.number);
     expect(g.prs.find((p) => p.number === res.pr!.number)!.state).toBe('merged');
     T(g, 'git switch staging', 'git pull', 'git branch -d feat/dark-mode');
@@ -112,6 +113,7 @@ describe('第 3 關', () => {
     T(g, 'git push -u origin feat/chapter-count');
     expect(lastCode(g)).toBe(0);
     const n = g.prs.find((p) => p.head === 'feat/chapter-count')!.number;
+    lookAll(g, n);
     g.ghReady(n);
     expectDone(g);
   });
@@ -137,8 +139,10 @@ describe('第 4 關', () => {
     expect(lastCode(g)).toBe(0);
     T(g, 'git push -u origin fix/revert-footer');
     expect(lastCode(g)).toBe(0);
-    const r = g.ghCreatePR({ title: '還原頁尾版權', body: '', head: 'fix/revert-footer', base: 'staging', draft: false });
+    const r = g.ghCreatePR({ title: '還原頁尾版權', body: '', head: 'fix/revert-footer', base: 'staging', draft: true });
     expect(r.pr).toBeTruthy();
+    lookAll(g, r.pr!.number);
+    g.ghReady(r.pr!.number);
     expectDone(g);
   });
   it('危險路線：4a 直接 push 到 staging → trap', () => {

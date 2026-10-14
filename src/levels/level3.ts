@@ -4,7 +4,9 @@ import { mergePR, updateBranch } from '../github/github';
 import { withFooterCount } from '../site/files';
 import { baseWorld, botPush, bossPolicy, editSite, newPR, siteTree } from './common';
 import { checkoutClean } from '../git/repo';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
+
+const EV_READY: EvTab[] = ['checks'];
 
 const FEAT = 'feat/chapter-count';
 const STYLE_RULE = '\n#footer { color: #666; font-size: 0.9em; }\n';
@@ -77,7 +79,13 @@ export const level3: LevelDef = {
       label: 'push 成功，而且這條分支設好追蹤（git push -u）',
       done: (g) => merged(g) || (!!tip(g) && g.origin.branches[FEAT] === tip(g) && !!g.me.tracking[FEAT] && hasStyle(g) && hasUpd(g)),
     },
-    { id: 'ready', label: '🧑 CI 全綠後，把 PR 轉成 Ready for review', human: true, done: (g) => !!myPR(g) && (!myPR(g)!.draft || merged(g)) },
+    {
+      id: 'ready',
+      label: '🧑 先打開 PR 的 Checks 確認全綠（P4），再轉成 Ready for review',
+      human: true,
+      evidence: { on: ['ready'], pr: myPR, tabs: EV_READY, rule: 'P4' },
+      done: (g) => !!myPR(g) && (!myPR(g)!.draft || merged(g)) && g.checkedPR(myPR(g)!.number, EV_READY),
+    },
     { id: 'merged', label: '部長審查並合併', done: (g) => merged(g) },
   ],
   hints: {
@@ -89,13 +97,14 @@ export const level3: LevelDef = {
       'git push -u origin feat/chapter-count   （會被拒絕，這是正常的）\ngit pull origin feat/chapter-count\n（直接輸入 git pull 會告訴你「沒有 tracking information」，因為還沒設追蹤）',
     ],
     push: ['合併完成後再 push 一次，這次記得告訴 Git 追蹤哪條遠端分支。', 'git push -u origin feat/chapter-count', '輸入：git push -u origin feat/chapter-count'],
-    ready: ['到 GitHub 分頁看 PR，確認 Checks 全綠再轉 Ready。', '按 Ready for review。', '在 PR 頁面按 Ready for review。'],
+    ready: ['到 GitHub 分頁打開 PR 的 Checks 分頁，確認全綠再轉 Ready（要真的打開，任務才會打勾）。', '點 Checks 分頁看過，再回對話分頁按 Ready for review。', '在 PR 頁面點 Checks，再按 Ready for review。'],
     merged: ['等部長審查。', '看右上角通知。', '如果被退回，看他寫的原因。'],
   },
   success: {
     summary: [
       'push 被拒絕不是壞事：Git 在保護你，免得你把別人（這次是部長按 Update branch 做的 merge commit）的工作蓋掉。正確的做法永遠是先 pull（把它合進來）、再 push；不是 --force（G6）。',
       '你也看到了「no tracking information」：本機分支沒有設追蹤，git pull / git push 不知道要對應哪一條遠端分支。第一次 push 新分支時一定要用 git push -u origin 分支名。',
+      '補充：這個練習用的 repo 已經先設好團隊的選擇 git config pull.rebase false（pull 一律用 merge），所以你的 git pull 直接成功。在一台全新的電腦上，如果兩邊都有新 commit，較新版本的 Git 會在 git pull 時報 fatal: Need to specify how to reconcile divergent branches。處理方式：執行一次 git config pull.rebase false，或只這一次用 git pull --no-rebase——不要用 force push 來解。',
     ],
     rules: [
       { code: 'G6', text: '禁止 --force；push 被拒絕＝先 pull 再 push' },

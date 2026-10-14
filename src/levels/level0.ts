@@ -38,7 +38,7 @@ export const level0: LevelDef = {
     status: [
       '終端機在左下角。點進輸入框，輸入 git status 後按 Enter。',
       '指令是：git status',
-      '在左下角的終端機輸入：git status（照打，然後 Enter）。你可以按右邊的「貼到終端機」。',
+      '在左下角的終端機輸入：git status（照打，然後 Enter）。',
     ],
     log: [
       'git log 會列出歷史。加上 --graph 會畫出分支的樣子，--all 會包含所有分支。',
@@ -68,8 +68,8 @@ export const level0: LevelDef = {
         : {
             label: '你想對 AI 說什麼？',
             options: [
-              { id: 'l0-a', text: '請告訴我現在在哪個分支，有沒有還沒 commit 的修改。', quality: 'good', script: 'look', note: '具體說明你要確認什麼——AI 能照做，你也容易驗證。' },
-              { id: 'l0-b', text: '幫我看一下目前的狀態。', quality: 'ok', script: 'look', note: '可以，但「狀態」很籠統，之後的關卡你會發現說得越具體越安全。' },
+              { id: 'l0-a', text: '告訴我現在在哪個分支，有沒有還沒 commit 的修改。', quality: 'good', script: 'look', note: '具體說明你要確認什麼——AI 能照做，你也容易驗證。' },
+              { id: 'l0-b', text: '我剛接手這個專案，想先了解一下目前的狀態，麻煩你幫我看看。', quality: 'ok', script: 'look', note: '可以，但「狀態」很籠統，之後的關卡你會發現說得越具體越安全。' },
             ],
           },
   },

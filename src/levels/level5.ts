@@ -4,7 +4,9 @@ import type { PromptOption } from '../agent/types';
 import { prChecks } from '../github/github';
 import { dropTocTest, fixBookmark, hasTocTest, withBookmark } from '../site/files';
 import { baseWorld, bossPolicy, editSite, leftovers } from './common';
-import type { LevelDef } from './types';
+import type { EvTab, LevelDef } from './types';
+
+const EV_READY: EvTab[] = ['files', 'checks', 'preview'];
 import type { PR } from '../git/types';
 
 const featPR = (g: Game): PR | undefined => g.prs.find((p) => p.author === 'me' && /^feat\//.test(p.head));
@@ -15,9 +17,9 @@ const prTreeOf = (g: Game, pr: PR) => {
 const directPush = (g: Game) => g.state.hist.some((h) => h.tag === 'push-protected-branch');
 const prMerged = (g: Game) => featPR(g)?.state === 'merged';
 
-const A_TEXT = '幫我做 Issue #6 的收藏按鈕。用 feat/ 分支開工，只 add 你改過的檔案，做完開 Draft PR。不要刪除或跳過測試，也不要自己合併。';
-const B_TEXT = '幫我做 Issue #6 的收藏按鈕。用 feat/ 分支開工，只 add 你改過的檔案，做完開 Draft PR。';
-const C_TEXT = '幫我做收藏功能然後推上去';
+const A_TEXT = '做 Issue #6 的收藏按鈕：用 feat/ 分支，只 add 改過的檔案，開 Draft PR。不要刪或跳過測試，也不要自己合併。';
+const B_TEXT = '幫我做 Issue #6 的收藏按鈕。用 feat/ 分支開工，只 add 你改過的檔案，做完開 Draft PR，PR 說明寫清楚做了什麼、怎麼測。';
+const C_TEXT = '幫我做收藏功能，測試跑過之後就推上去，我等一下要出門，越快越好。';
 
 const PUSH_FLOW = [
   say('Commit 成功。接下來把分支推上 GitHub，並開一個 Draft PR。'),
@@ -38,7 +40,7 @@ export const level5: LevelDef = {
   story: [
     '從這一關開始，換 AI 動手。Issue #6「收藏按鈕」要你交給 AI 做：你用一句話下達開工提示，AI 自己跑指令。',
     '這個 AI 開在 Auto 模式：它不會每一步都問你。團隊的權限規則只擋「字面上」寫到的指令（例如 git add .、--no-verify、force push、gh pr merge）；沒寫到的，它想做就做。Auto 模式本身也擋一些破壞性操作（例如 +refspec 的 force push）。',
-    '你唯一的剎車是：看畫面，必要時按 Esc 打斷它（畫面上有按鈕，鍵盤 Esc 也可以）；以及 開工提示裡你講過的界線。出事了還有「時光倒流」。',
+    '你唯一的剎車是：看畫面，必要時按 Esc 打斷它（畫面上有按鈕，鍵盤 Esc 也可以）；以及 開工提示裡你講過的界線。出事了還有「時光倒流」。AI 的動作太快來不及看的話，可以在「⚙ 設定」把 AI 的速度調成「慢」。',
     '🧑 人要做的事：選好開工提示、盯著 AI 的每一步、自己確認預覽與測試、把 PR 轉成 Ready（合併由部長來）。',
   ],
   setup() {
@@ -92,7 +94,13 @@ export const level5: LevelDef = {
         return !!t && !t['ai-notes.md'] && !t['screenshot.png'] && !t['.env'];
       },
     },
-    { id: 'ready', label: '🧑 看過 PR 預覽與 Files changed 之後，由你把 PR 轉成 Ready for review', human: true, done: (g) => !!featPR(g) && (!featPR(g)!.draft || prMerged(g)) },
+    {
+      id: 'ready',
+      label: '🧑 打開 PR 的預覽站、Files changed、Checks 各看一遍（P4），再由你轉成 Ready for review',
+      human: true,
+      evidence: { on: ['ready'], pr: featPR, tabs: EV_READY, rule: 'P4' },
+      done: (g) => !!featPR(g) && (!featPR(g)!.draft || prMerged(g)) && g.checkedPR(featPR(g)!.number, EV_READY),
+    },
     { id: 'merged', label: '部長審查並合併（AI 不能合併自己的 PR）', done: (g) => prMerged(g) && !directPush(g) },
   ],
   hints: {
@@ -108,7 +116,7 @@ export const level5: LevelDef = {
       '已經刪掉了？按時光倒流，回到開工提示之前，選第一句。',
     ],
     clean: ['AI 想 git add . 被規則擋下，是這道防線的功勞。', '正確的做法是只 add 改過的檔案。', '看 PR 的 Files changed 確認。'],
-    ready: ['轉 Ready 之前，自己點開預覽看一遍（P4）。', '到 GitHub 分頁，打開 PR，看 Checks 與預覽，再按 Ready for review。', '在 PR 頁面按 Ready for review。'],
+    ready: ['轉 Ready 之前，自己點開預覽看一遍（P4）——要真的打開分頁，任務才會打勾。', '到 GitHub 分頁，打開 PR，依序看預覽站、Files changed、Checks，再按 Ready for review。', '在 PR 頁面點預覽站、Files changed、Checks 各一次，再按 Ready for review。'],
     merged: ['轉 Ready 後部長機器人會自己審查。', '看右上角通知。', '如果被退回，看他寫的原因。'],
   },
   agent: {
@@ -211,15 +219,15 @@ export const level5: LevelDef = {
             label: '你打斷了 AI。接下來怎麼說？',
             options: [
               { id: 'l5-fix', text: '不要刪測試。請修好你的程式，讓原本的測試通過。', quality: 'good', script: 'fix-after-esc', note: '把「測試是對的、程式要改」講明白，AI 就會去修實作。' },
-              { id: 'l5-whatever', text: '那你自己想辦法讓它通過。', quality: 'vague', script: 'cheat-again', note: '沒有講界線，AI 又回到最短的路：刪測試。（它又會給你一次按 Esc 的機會。）' },
+              { id: 'l5-whatever', text: '那你自己想辦法讓它通過，用什麼方法都可以，我只要看到綠燈，其他的細節我沒空看。', quality: 'vague', script: 'cheat-again', note: '沒有講界線，AI 又回到最短的路：刪測試。（它又會給你一次按 Esc 的機會。）' },
             ],
           };
         }
         return {
           label: '你打斷了 AI。接下來怎麼說？',
           options: [
-            { id: 'l5-move', text: '先不要 push。把這個 commit 搬到 feat/bookmark 分支，再讓 staging 回到跟 origin/staging 一樣。', quality: 'good', script: 'move-to-branch', note: '具體說明怎麼收拾殘局。reset 屬於 ask 規則，AI 會跳出權限視窗讓你確認。' },
-            { id: 'l5-go', text: '你自己看著辦，做完就好。', quality: 'vague', script: 'push-again', note: '把決定權還給 AI，它會照原本的計畫 push 到 staging。（再給你一次按 Esc 的機會。）' },
+            { id: 'l5-move', text: '先不要 push。把這個 commit 搬到 feat/bookmark，staging 退回跟 origin/staging 一樣。', quality: 'good', script: 'move-to-branch', note: '具體說明怎麼收拾殘局。reset 屬於 ask 規則，AI 會跳出權限視窗讓你確認。' },
+            { id: 'l5-go', text: '這個 commit 該怎麼處理你自己判斷，處理完直接推上去，我晚點再看結果就好。', quality: 'vague', script: 'push-again', note: '把決定權還給 AI，它會照原本的計畫 push 到 staging。（再給你一次按 Esc 的機會。）' },
           ],
         };
       }

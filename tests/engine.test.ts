@@ -225,3 +225,36 @@ describe('git 引擎：origin/* 是上次 fetch 的樣子', () => {
     expect(sh(w, 'git status').out).toContain('behind');
   });
 });
+
+describe('git 引擎：pull.rebase 設定', () => {
+  // 本機與遠端各有一個對方沒有的 commit（分岔）
+  const diverge = (pullRebase: boolean | null) => {
+    const { w } = baseWorld({ meOn: 'staging' });
+    sh(w, 'git switch -c feat/z');
+    edit(w, 'README.md', (s) => s + '\nA\n');
+    sh(w, 'git add README.md', 'git commit -m a', 'git push -u origin feat/z');
+    botPush(w, 'mei', 'feat/z', (t) => ({ ...t, 'style.css': t['style.css'] + '\n.mei{}\n' }), 'mei');
+    edit(w, 'README.md', (s) => s + '\nB\n');
+    sh(w, 'git add README.md', 'git commit -m b');
+    w.repos.me.config.pullRebase = pullRebase;
+    return w;
+  };
+
+  it('沒設 pull.rebase、分支分岔：git pull 失敗並顯示 Need to specify how to reconcile；git config pull.rebase false 之後 pull 以 merge 成功', () => {
+    const w = diverge(null);
+    const before = w.repos.me.branches['feat/z'];
+    const r = sh(w, 'git pull');
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain('Need to specify how to reconcile divergent branches');
+    expect(w.repos.me.branches['feat/z']).toBe(before);
+    expect(sh(w, 'git config pull.rebase false').code).toBe(0);
+    expect(sh(w, 'git pull').code).toBe(0);
+    expect(parents(w, w.repos.me.branches['feat/z'])).toHaveLength(2);
+  });
+
+  it('練習用 repo 預設 pull.rebase=false：分岔時 git pull 直接 merge', () => {
+    const w = diverge(false);
+    expect(sh(w, 'git pull').code).toBe(0);
+    expect(parents(w, w.repos.me.branches['feat/z'])).toHaveLength(2);
+  });
+});

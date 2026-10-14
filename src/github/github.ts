@@ -85,13 +85,19 @@ export function diffFiles(from: Files, to: Files): FileChange[] {
   });
 }
 
-export function prFiles(w: World, pr: PR): FileChange[] {
+/** PR 的「基底 → 目前 head」兩份內容（Files changed 與 gh pr diff 共用） */
+export function prTrees(w: World, pr: PR): { from: Files; to: Files } | null {
   const o = w.repos.origin;
   const h = pr.state === 'open' ? o.branches[pr.head] : pr.finalHead;
-  if (!h) return [];
+  if (!h) return null;
   const b = pr.state === 'open' ? o.branches[pr.base] : pr.finalBase;
   const mb = b ? mergeBase(w, h, b) : null;
-  return diffFiles(treeOf(w, mb), treeOf(w, h));
+  return { from: treeOf(w, mb), to: treeOf(w, h) };
+}
+
+export function prFiles(w: World, pr: PR): FileChange[] {
+  const t = prTrees(w, pr);
+  return t ? diffFiles(t.from, t.to) : [];
 }
 
 export function prChecks(w: World, pr: PR): CheckResult[] {
@@ -268,6 +274,8 @@ export function deployedTree(w: World, site: 'staging' | 'master'): Files | null
 }
 
 export function prPreviewTree(w: World, pr: PR): Files | null {
+  // 已合併的 PR：顯示合併前最後一版（讓「回去補看」成立）；關閉未合併的沒有預覽
+  if (pr.state === 'merged') return pr.finalHead ? treeOf(w, pr.finalHead) : null;
   if (pr.state !== 'open') return null;
   const id = w.repos.origin.branches[pr.head];
   return id ? treeOf(w, id) : null;
